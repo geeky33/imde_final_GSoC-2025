@@ -1,0 +1,7 @@
+streamlit
+transformers
+torch
+Pillow
+numpy
+scikit-learn
+plotly
