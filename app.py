@@ -1,5 +1,3 @@
-# joint_embed_streamlit/app.py
-
 import streamlit as st
 import os
 import json
@@ -17,7 +15,7 @@ st.title("🔍 Visualizing Image vs Text Embeddings Separately")
 
 # --- Constants ---
 DATA_FOLDER = "data/images"
-CAPTION_FILE = "data/captions1.json"  # updated to match generated caption file
+CAPTION_FILE = "data/captions1.json"
 os.makedirs("embeddings", exist_ok=True)
 os.makedirs("projections", exist_ok=True)
 
@@ -51,7 +49,6 @@ image_embeds, text_embeds, labels = extract_embeddings()
 # --- Sidebar projection method ---
 st.sidebar.subheader("🔧 Projection Settings")
 method = st.sidebar.selectbox("Select projection method:", ["PCA", "UMAP", "t-SNE"])
-show_combined = st.sidebar.checkbox("Show combined embedding plot")
 
 # --- Projection helper ---
 def project(method, vecs):
@@ -63,14 +60,15 @@ def project(method, vecs):
     elif method == "UMAP":
         if n_samples <= 5:
             return PCA(n_components=2).fit_transform(vecs)
-        return UMAP(n_components=2, n_neighbors=min(5, n_samples - 2)).fit_transform(vecs)
+        return UMAP(n_components=2, n_neighbors=min(10, n_samples - 2), min_dist=0.3, metric="cosine").fit_transform(vecs)
     elif method == "t-SNE":
         if n_samples <= 5:
             return PCA(n_components=2).fit_transform(vecs)
-        return TSNE(n_components=2, perplexity=min(5, n_samples - 1), init="random", random_state=42).fit_transform(vecs)
+        return TSNE(n_components=2, perplexity=min(30, n_samples - 1), learning_rate='auto', init="random", random_state=42).fit_transform(vecs)
 
 proj_img = project(method, image_embeds)
 proj_txt = project(method, text_embeds)
+proj_joint = project(method, np.concatenate([image_embeds, text_embeds]))
 
 # --- Save projections ---
 pd.DataFrame(proj_img, columns=["x1", "x2"]).to_csv("projections/image_proj.csv", index=False)
@@ -80,14 +78,14 @@ pd.DataFrame(text_embeds).to_csv("embeddings/text_embeddings.csv", index=False)
 
 # --- Categorization helper ---
 def get_category(label):
-    return "Flickr8k"  # Simplified: You can expand category logic if needed
+    return "Flickr8k"
 
 categories = [get_category(lbl) for lbl in labels]
 
-# Create unified dataframe with modality
 proj_combined = np.concatenate([proj_img, proj_txt])
 modalities = ["Image"] * len(proj_img) + ["Text"] * len(proj_txt)
 
+# --- DataFrames ---
 df_combined = pd.DataFrame({
     f"{method} 1": proj_combined[:, 0],
     f"{method} 2": proj_combined[:, 1],
@@ -97,7 +95,6 @@ df_combined = pd.DataFrame({
     "Category": categories * 2
 })
 
-# Split for clarity
 df_img = df_combined[df_combined.Type == "Image"]
 df_txt = df_combined[df_combined.Type == "Text"]
 
@@ -114,7 +111,7 @@ with col1:
         title="Image Embeddings"
     )
     fig1.update_layout(template="plotly_dark")
-    st.plotly_chart(fig1, _container_width=True)
+    st.plotly_chart(fig1, use_container_width=True)
 
 with col2:
     st.subheader(f"📝 Text Embedding Projection ({method})")
@@ -129,20 +126,29 @@ with col2:
     fig2.update_layout(template="plotly_dark")
     st.plotly_chart(fig2, use_container_width=True)
 
-# --- Combined visualization toggle ---
-if show_combined:
-    st.subheader("🔄 Combined Embedding Plot")
-    fig3 = px.scatter(
-        df_combined,
-        x=f"{method} 1",
-        y=f"{method} 2",
-        color="Category",
-        symbol="Type",
-        hover_data=["Filename", "Caption"],
-        title="Combined Embeddings"
-    )
-    fig3.update_layout(template="plotly_dark")
-    st.plotly_chart(fig3, use_container_width=True)
+# --- Joint Embedding ---
+st.subheader("🔄 Joint Embedding Plot")
+modalities_joint = ["Image"] * len(proj_img) + ["Text"] * len(proj_txt)
+df_joint = pd.DataFrame({
+    f"{method} 1": proj_joint[:, 0],
+    f"{method} 2": proj_joint[:, 1],
+    "Filename": labels + labels,
+    "Type": modalities_joint,
+    "Caption": [captions.get(lbl, "") for lbl in labels] * 2,
+    "Category": categories * 2
+})
+
+fig3 = px.scatter(
+    df_joint,
+    x=f"{method} 1",
+    y=f"{method} 2",
+    color="Category",
+    symbol="Type",
+    hover_data=["Filename", "Caption"],
+    title="Joint Embeddings"
+)
+fig3.update_layout(template="plotly_dark")
+st.plotly_chart(fig3, use_container_width=True)
 
 # --- Download options ---
 st.sidebar.subheader("⬇️ Download Options")
